@@ -356,7 +356,61 @@
         registerVariablesBeforePaste(ws, varDefs);
       }
 
+      // --- NEW: Detect and auto-rename subroutine if name already exists ---
+function renameSubroutineIfNeeded(ws, data) {
+  try {
+    if (!data || data.type !== "subroutineBlock") return data;
+
+    const originalName =
+      data.extraState?.subroutineName ||
+      data.fields?.SUBROUTINE_NAME;
+
+    if (!originalName) return data;
+
+    // Collect existing names
+    const existingNames = new Set();
+
+    const allBlocks = ws.getAllBlocks(false);
+    for (const b of allBlocks) {
+      if (b.type === "subroutineBlock") {
+        const name =
+          (b.extraState && b.extraState.subroutineName) ||
+          (b.getField && b.getField("SUBROUTINE_NAME")?.getValue());
+        if (name) existingNames.add(name);
+      }
+    }
+
+    if (!existingNames.has(originalName)) return data;
+
+    // Generate new unique name
+    let i = 1;
+    let newName = originalName + i;
+    while (existingNames.has(newName)) {
+      i++;
+      newName = originalName + i;
+    }
+
+    // Apply new name to the subroutine
+    if (data.extraState) data.extraState.subroutineName = newName;
+    if (data.fields) data.fields.SUBROUTINE_NAME = newName;
+
+    // Also rewrite ANY reference to the subroutine name inside inputs
+    traverseSerializedBlocks(data, (b) => {
+      if (b.fields && b.fields.SUBROUTINE_NAME === originalName) {
+        b.fields.SUBROUTINE_NAME = newName;
+      }
+    });
+
+    return data;
+  } catch (err) {
+    console.warn("[CopyPastePlugin] renameSubroutineIfNeeded failed:", err);
+    return data;
+  }
+}
+
+
       // Then sanitize (this now leaves variableReferenceBlock untouched)
+      data = renameSubroutineIfNeeded(ws, data);
       data = sanitizeForWorkspace(ws, data);
 
       // Compute original top-left and mouse offset
